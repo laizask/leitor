@@ -1,8 +1,17 @@
-from flask import Flask, request, render_template
+from flask import Flask, request, render_template, redirect, url_for, session
 import pdfplumber
 import pandas as pd
+import os
+from google_auth_oauthlib.flow import Flow
 
 app = Flask(__name__)
+app.secret_key = 'SUA_CHAVE_SECRETA'  # Use uma chave secreta para a sessão
+
+# Configurações do OAuth 2.0
+os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'  # Para desenvolvimento local
+CLIENT_SECRETS_FILE = "credentials.json"  # Caminho para o seu arquivo de credenciais
+
+SCOPES = ['https://www.googleapis.com/auth/drive.file']
 
 def extrair_dados_fgts(arquivo_pdf):
     dados_fgts = []
@@ -18,7 +27,6 @@ def extrair_dados_fgts(arquivo_pdf):
                     if "Valor a recolher" in linhas[i]:
                         if i + 1 < len(linhas):
                             valor_recolher = linhas[i + 1].strip()
-                            # Adiciona um dicionário com os dados extraídos
                             dados_fgts.append({
                                 "Nome/Razão Social do Empregador": nome_empregador,
                                 "Valor a recolher": valor_recolher
@@ -45,50 +53,69 @@ def extrair_dados_inss(arquivo_pdf):
                             valor_total = linhas[i + 1].strip()
                     if "Documento de Arrecadação de Receitas Federais" in linhas[i]:
                         if i + 1 < len(linhas):
-                            # Extraí o código de barras na linha abaixo
-                            codigo_barras = linhas[i + 1].strip()[:55]  # Limita a 55 caracteres
-                            # Adiciona um dicionário com os dados extraídos
+                            codigo_barras = linhas[i + 1].strip()[:55]
                             dados_inss.append({
                                 "Razão Social": razao_social,
                                 "Valor Total do Documento": valor_total,
                                 "Código de Barras": codigo_barras
                             })
-    
     return dados_inss
 
 def exportar_para_planilhas(dados_fgts, dados_inss):
-    # Cria um DataFrame para FGTS e exporta para uma planilha
     df_fgts = pd.DataFrame(dados_fgts)
     df_fgts.to_excel("dados_fgts.xlsx", index=False)
 
-    # Cria um DataFrame para INSS e exporta para outra planilha
     df_inss = pd.DataFrame(dados_inss)
     df_inss.to_excel("dados_inss.xlsx", index=False)
 
-@app.route("/", methods=["GET", "POST"])
+@app.route("/")
 def index():
+    return render_template("index.html")
+
+@app.route("/authorize")
+def authorize():
+    flow = Flow.from_client_secrets_file(
+        CLIENT_SECRETS_FILE,
+        scopes=SCOPES,
+        redirect_uri=url_for('callback', _external=True)
+    )
+    authorization_url, state = flow.authorization_url()
+    session['state'] = state
+    return redirect(authorization_url)
+
+@app.route('/callback')
+def callback():
+    flow = Flow.from_client_secrets_file(
+        CLIENT_SECRETS_FILE,
+        scopes=SCOPES,
+        state=session['state'],
+        redirect_uri=url_for('callback', _external=True)
+    )
+    flow.fetch_token(authorization_response=request.url)
+    credentials = flow.credentials
+    # Agora você pode usar as credenciais para acessar a API
+    return 'Autenticação bem-sucedida!'
+
+@app.route("/upload", methods=["POST"])
+def upload():
     if request.method == "POST":
-        arquivos_pdf1 = request.files.getlist("pdf1")  # Obtém uma lista de arquivos do tipo 1 (FGTS)
-        arquivos_pdf2 = request.files.getlist("pdf2")  # Obtém uma lista de arquivos do tipo 2 (INSS)
+        arquivos_pdf1 = request.files.getlist("pdf1")
+        arquivos_pdf2 = request.files.getlist("pdf2")
 
-        todos_dados_fgts = []  # Lista para dados FGTS
-        todos_dados_inss = []  # Lista para dados INSS
+        todos_dados_fgts = []
+        todos_dados_inss = []
 
-        # Extrai dados do primeiro tipo de arquivo (FGTS)
         for arquivo_pdf in arquivos_pdf1:
             dados_extraidos = extrair_dados_fgts(arquivo_pdf)
-            todos_dados_fgts.extend(dados_extraidos)  # Adiciona os dados extraídos
+            todos_dados_fgts.extend(dados_extraidos)
 
-        # Extrai dados do segundo tipo de arquivo (INSS)
         for arquivo_pdf in arquivos_pdf2:
             dados_extraidos = extrair_dados_inss(arquivo_pdf)
-            todos_dados_inss.extend(dados_extraidos)  # Adiciona os dados extraídos
+            todos_dados_inss.extend(dados_extraidos)
 
         exportar_para_planilhas(todos_dados_fgts, todos_dados_inss)
 
         return "Dados prontos para visualização nas planilhas!"
-    
-    return render_template("index.html")
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     app.run(debug=True)
