@@ -1,17 +1,9 @@
-from flask import Flask, request, render_template, redirect, url_for, session
+from flask import Flask, request, render_template
 import pdfplumber
 import pandas as pd
-import os
-from google_auth_oauthlib.flow import Flow
+import re
 
 app = Flask(__name__)
-app.secret_key = 'SUA_CHAVE_SECRETA'  # Use uma chave secreta para a sessão
-
-# Configurações do OAuth 2.0
-os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'  # Para desenvolvimento local
-CLIENT_SECRETS_FILE = "credentials.json"  # Caminho para o seu arquivo de credenciais
-
-SCOPES = ['https://www.googleapis.com/auth/drive.file']
 
 def extrair_dados_fgts(arquivo_pdf):
     dados_fgts = []
@@ -61,49 +53,63 @@ def extrair_dados_inss(arquivo_pdf):
                             })
     return dados_inss
 
-def exportar_para_planilhas(dados_fgts, dados_inss):
+def extrair_dados_vinculo(arquivo_pdf):
+    dados_vinculo = []
+    palavras_ignorar = ["Situação:", "Trabalhando", "CPF:", "Adm:", "Doença"]
+
+    with pdfplumber.open(arquivo_pdf) as pdf:
+        for pagina in pdf.pages:
+            texto = pagina.extract_text()
+            if texto:
+                linhas = texto.split('\n')
+                funcionario = ""
+                tipo_vinculo = ""
+                valor_liquido = ""
+
+                for i in range(len(linhas)):
+                    if "Empr.:" in linhas[i]:
+                        funcionario = linhas[i].split("Empr.:")[1].strip()
+                        for palavra in palavras_ignorar:
+                            funcionario = funcionario.replace(palavra, "")
+                        funcionario = re.sub(r'[^a-zA-Z\s]', '', funcionario)
+                        funcionario = re.sub(r'\s+', ' ', funcionario).strip()
+
+                    if "Vínculo:" in linhas[i]:
+                        tipo_vinculo = linhas[i].split("Vínculo:")[1].strip()
+                        if "celetista" in tipo_vinculo.lower():
+                            tipo_vinculo = "Celetista"
+
+                    if "Líquido:" in linhas[i]:
+                        valor_liquido = linhas[i].split("Líquido:")[1].strip()
+
+                        if tipo_vinculo == "Celetista":
+                            dados_vinculo.append({
+                                "Funcionário": funcionario,
+                                "Vínculo": tipo_vinculo,
+                                "Líquido": valor_liquido
+                            })
+    return dados_vinculo
+
+def exportar_para_planilhas(dados_fgts, dados_inss, dados_vinculo):
     df_fgts = pd.DataFrame(dados_fgts)
     df_fgts.to_excel("dados_fgts.xlsx", index=False)
 
     df_inss = pd.DataFrame(dados_inss)
     df_inss.to_excel("dados_inss.xlsx", index=False)
 
-@app.route("/")
+    df_vinculo = pd.DataFrame(dados_vinculo)
+    df_vinculo.to_excel("dados_vinculo.xlsx", index=False)
+
+@app.route("/", methods=["GET", "POST"])
 def index():
-    return render_template("index.html")
-
-@app.route("/authorize")
-def authorize():
-    flow = Flow.from_client_secrets_file(
-        CLIENT_SECRETS_FILE,
-        scopes=SCOPES,
-        redirect_uri=url_for('callback', _external=True)
-    )
-    authorization_url, state = flow.authorization_url()
-    session['state'] = state
-    return redirect(authorization_url)
-
-@app.route('/callback')
-def callback():
-    flow = Flow.from_client_secrets_file(
-        CLIENT_SECRETS_FILE,
-        scopes=SCOPES,
-        state=session['state'],
-        redirect_uri=url_for('callback', _external=True)
-    )
-    flow.fetch_token(authorization_response=request.url)
-    credentials = flow.credentials
-    # Agora você pode usar as credenciais para acessar a API
-    return 'Autenticação bem-sucedida!'
-
-@app.route("/upload", methods=["POST"])
-def upload():
     if request.method == "POST":
         arquivos_pdf1 = request.files.getlist("pdf1")
         arquivos_pdf2 = request.files.getlist("pdf2")
+        arquivos_pdf3 = request.files.getlist("pdf3")
 
         todos_dados_fgts = []
         todos_dados_inss = []
+        todos_dados_vinculo = []
 
         for arquivo_pdf in arquivos_pdf1:
             dados_extraidos = extrair_dados_fgts(arquivo_pdf)
@@ -113,9 +119,15 @@ def upload():
             dados_extraidos = extrair_dados_inss(arquivo_pdf)
             todos_dados_inss.extend(dados_extraidos)
 
-        exportar_para_planilhas(todos_dados_fgts, todos_dados_inss)
+        for arquivo_pdf in arquivos_pdf3:
+            dados_extraidos = extrair_dados_vinculo(arquivo_pdf)
+            todos_dados_vinculo.extend(dados_extraidos)
+
+        exportar_para_planilhas(todos_dados_fgts, todos_dados_inss, todos_dados_vinculo)
 
         return "Dados prontos para visualização nas planilhas!"
+    
+    return render_template("index.html")
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     app.run(debug=True)
