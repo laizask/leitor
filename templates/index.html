@@ -1,23 +1,24 @@
 <!DOCTYPE html>
-<html lang="pt-br">
+<html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>Leitor de PDF</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Envio de PDFs</title>
+    <link rel="stylesheet" href="static/css/style.css">
 </head>
 <body>
-  <h1>Enviar PDF</h1>
-  <form action="/upload" method="post" enctype="multipart/form-data">
-    <input type="file" name="pdf_file" accept=".pdf" required>
-    <button type="submit">Enviar</button>
-  </form>
+    <h1>Carregar Arquivos PDF</h1>
+    <form action="/" method="POST" enctype="multipart/form-data">
+        <label for="pdf1">FGTS</label>
+        <input type="file" name="pdf1" multiple required><br><br>
 
-  {% if arquivos_gerados %}
-    <h2>Download das Planilhas:</h2>
-    <ul>
-        <li><a href="/static/planilhas/dados_fgts.xlsx" download>Download FGTS</a></li>
-        <li><a href="/static/planilhas/dados_inss.xlsx" download>Download INSS</a></li>
-        <li><a href="/static/planilhas/dados_vinculo.xlsx" download>Download Vínculo</a></li>
-    </ul>
-  {% endif %}
+        <label for="pdf2">INSS</label>
+        <input type="file" name="pdf2" multiple required><br><br>
+
+        <label for="pdf3">Vínculo</label>
+        <input type="file" name="pdf3" multiple required><br><br>
+        
+        <input type="submit" value="Extrair Dados">
+    </form>
 </body>
 </html>
