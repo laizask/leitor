@@ -125,7 +125,7 @@ def index():
 
         exportar_para_planilhas(todos_dados_fgts, todos_dados_inss, todos_dados_vinculo)
 
-        return "Dados prontos para visualização nas planilhas!"
+        return render_template("index.html", arquivos_gerados=True)
     
     return render_template("index.html")
 
